@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from AlexNet.MyAlexNet import AlexNetMini
 from itertools import chain
+import statistics
 
 
 class AlexNetPretrainer(nn.Module):
@@ -85,9 +86,9 @@ class AlexNetPretrainer(nn.Module):
         x = self.decode(x, 1, indices=i1)
         return x
 
-    def pretrain(self, dataloader, stage, epochs, lr, momentum, wd, unsupervised_loss=nn.L1Loss()):
+    def pretrain(self, dataloader, stage, epochs, lr, momentum, wd, unsupervised_loss=nn.L1Loss(reduction='mean'), unpack=False):
 
-        print('Pretraining ', stage, 'th layer for AlexNet Mini.')
+        print('Pretraining the', stage, 'th layer of AlexNet Mini.')
         print('Epochs:', epochs)
         print('Learning rate:', lr)
         print('Momentum:', momentum)
@@ -109,19 +110,21 @@ class AlexNetPretrainer(nn.Module):
         optimizer = torch.optim.SGD(parameters, lr=lr, momentum=momentum, weight_decay=wd)
 
         N = len(dataloader)
-        Nb = max(1, N // 10)
+        Nb = max(1, N // 16)
 
         for epoch in range(epochs):
             print('Epoch', epoch + 1)
-            epoch_loss = 0.0
-            batches_loss = 0.0
+            epoch_losses = []
+            batches_losses = []
 
             for bn, batch in enumerate(dataloader):
+                if unpack:
+                    batch = batch[0]
 
                 # reporting the number of batches done
-                if (bn + 1) % Nb:
-                    print('[{:6} | {:6}] loss: {}'.format(bn + 1, len(batch), batches_loss/Nb))
-                    batches_loss = 0.0
+                if (bn + 1) % Nb == 0:
+                    print('[{:6} | {:6}] loss: {}'.format(bn + 1, N, statistics.mean(batches_losses)))
+                    batches_losses = []
 
                 # getting the output from prior layers
                 for i in range(1, stage):
@@ -136,15 +139,15 @@ class AlexNetPretrainer(nn.Module):
                 loss = unsupervised_loss(batch, recon)
 
                 # tracking the loss
-                epoch_loss += float(loss)
-                batches_loss += float(loss)
+                epoch_losses.append(float(loss))
+                batches_losses.append(float(loss))
 
                 # backpropagation
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-            print('Epoch loss:', epoch_loss / N)
+            print('Epoch loss:', statistics.mean(epoch_losses))
 
     def appy_weights(self, model: AlexNetMini):
         model.features.load_state_dict({
